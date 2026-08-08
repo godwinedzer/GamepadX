@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "PadX",
+    "slug": "padx",
+    "version": "1.0.0",
+    "orientation": "landscape",
+    "icon": "./assets/images/icon.jpg",
+    "scheme": "padx",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "package": "com.eren_1042.padx"
+    },
+    "web": {
+      "output": "single",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [],
+    "experiments": {
+      "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "f55421a4-1fd7-46e4-b383-2aab40db1cf3"
+      }
+    }
+  }
+}

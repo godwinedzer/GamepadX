@@ -1,0 +1,22 @@
+# Node modules and build files
+client/node_modules/
+client/.expo/
+client/android/
+client/.vscode/
+
+# Rust build target
+server/target/
+
+# Local build / zip backups / built binaries
+logic_backup.zip
+release/*.zip
+release/build-2026-08-03/
+*.zip
+
+# Exclude large built binaries from release folder
+release/**/*.apk
+release/**/*.exe
+release/**/*.pdb
+release/PadX-Android/app-release.apk
+release/PadX-Windows/server.exe
+release/PadX-Windows/server.pdb
