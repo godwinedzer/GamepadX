@@ -1,118 +1,194 @@
-# 🎮 ZapGamepad (PadX)
+<div align="center">
 
-ZapGamepad (commercially packaged as **PadX**) is a low-latency, real-time virtual game controller system. It allows you to use a multi-touch Android device as a high-performance Xbox 360 controller on a Windows PC over your local network.
+# 🎮 ZapGamepad — PadX
+
+**Turn your Android phone into a low-latency Xbox 360 controller for your PC.**
+
+No cables. No pairing dance. Just scan a QR code and play.
+
+[![Made with Rust](https://img.shields.io/badge/server-Rust-orange?logo=rust)](https://www.rust-lang.org/)
+[![Made with Expo](https://img.shields.io/badge/client-React%20Native%20%2F%20Expo-000?logo=expo)](https://expo.dev/)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Android-informational)](#)
+[![Protocol](https://img.shields.io/badge/protocol-Custom%20UDP%20%2F%2024--byte-brightgreen)](#-custom-binary-udp-protocol)
+[![License](https://img.shields.io/badge/license-TBD-lightgrey)](#-license)
+
+<br/>
+
+<img src="assets/padx-ui.png" alt="PadX controller UI" width="850"/>
+
+</div>
+
+---
+
+## 📚 Table of Contents
+
+- [Overview](#-overview)
+- [Features](#-features)
+- [System Architecture](#-system-architecture)
+- [Components](#-components)
+- [Binary UDP Protocol](#-custom-binary-udp-protocol)
+- [Getting Started](#-getting-started)
+- [Tech Stack](#-tech-stack)
+- [Roadmap](#-roadmap)
+- [License](#-license)
+
+---
+
+## 🕹️ Overview
+
+**PadX** is a real-time virtual gamepad system. It pairs a React Native touch UI on Android with a Rust host server on Windows, streaming input over raw UDP and injecting it into a kernel-level virtual Xbox 360 controller via **ViGEmBus** — so any game that supports a physical Xbox controller works out of the box.
+
+---
+
+## ✨ Features
+
+- ⚡ **Low-latency input** — ~60Hz client send rate, 120Hz server injection loop
+- 🕹️ **Spring-physics joysticks** — snap-back-to-center feel with haptic feedback
+- 🔌 **Zero-handshake networking** — raw UDP, no connection setup overhead
+- 📷 **QR code pairing** — scan straight from the server console to connect
+- 🎮 **True virtual controller** — kernel-level emulation via ViGEmBus, indistinguishable from a physical Xbox 360 pad
+- 💾 **Auto IP persistence** — client remembers your last host IP via `AsyncStorage`
+- 🖱️ **Linear pointer mode** — disables Windows pointer acceleration during mouse emulation, restores it on exit
+- 🛡️ **Fail-safe neutralization** — inputs zero out automatically if no packet arrives within 100ms
 
 ---
 
 ## ⚡ System Architecture
 
-The project consists of two core components communicating over a local network:
-
 ```mermaid
 graph LR
-    subgraph Android Device (Client)
-        A[React Native UI] -->|Spring Physics & Touch Events| B[GamepadNetwork.js]
-        B -->|24-byte UDP Packet| C[Local Network / UDP 8888]
+    subgraph "Android Device (Client)"
+        A["React Native UI"] -->|"Spring Physics & Touch Events"| B["GamepadNetwork.js"]
+        B -->|"24-byte UDP Packet"| C["Local Network / UDP 8888"]
     end
-    
-    subgraph Windows PC (Server)
-        C -->|Raw UDP Socket| D[Rust Server / Async UDP Reader]
-        D -->|Overwriting Bounded Queue| E[120Hz Input Injection Loop]
-        E -->|ViGEmBus Driver| F[Virtual Xbox 360 Controller]
-        F -->|OS Input Event| G[Native PC Games]
+    subgraph "Windows PC (Server)"
+        C -->|"Raw UDP Socket"| D["Rust Server / Async UDP Reader"]
+        D -->|"Overwriting Bounded Queue"| E["120Hz Input Injection Loop"]
+        E -->|"ViGEmBus Driver"| F["Virtual Xbox 360 Controller"]
+        F -->|"OS Input Event"| G["Native PC Games"]
     end
 ```
 
-### 1. Mobile Client (`client/`)
-* **Framework**: React Native + Expo.
-* **UI/UX**: Custom joystick using spring physics (`animated` API) that snaps back to center on release, accompanied by haptic feedback.
-* **Network**: Blasts raw binary packets over a local UDP socket to target port `8888` at ~60Hz for zero-handshake, low-latency performance.
-* **Config Persistence**: Automatically persists the last successfully entered host IP using `AsyncStorage`.
+---
 
-### 2. Host Server (`server/`)
-* **Language**: Rust (utilizing `tokio` for async network I/O and `crossbeam-channel` for lock-free queuing).
-* **Driver Integration**: Simulates a physical Xbox 360 Controller by interfacing directly with the Windows kernel-level **ViGEmBus** driver.
-* **Smart Discoverability**: Automatically detects the PC's local network IPv4 address on start and renders a high-contrast **QR Code** directly in the console for easy scanning.
-* **Raw Inputs & Acceleration**: Temporarily overrides Windows "Enhance Pointer Precision" (pointer acceleration) during mouse emulation mode to ensure linear, predictable cursor control, and cleanly restores it on exit.
-* **120Hz Loop**: Runs a dedicated thread-local input injection loop at 120Hz, draining the network packet queue and executing state neutralization if no packet is received for >100ms.
+## 🧩 Components
+
+### 1. Mobile Client — `client/`
+
+| | |
+|---|---|
+| **Framework** | React Native + Expo |
+| **UI/UX** | Custom joystick built on the `Animated` API with spring physics and snap-back on release, paired with haptic feedback |
+| **Network** | Raw binary UDP packets sent to port `8888` at ~60Hz |
+| **Persistence** | Last successfully connected host IP saved via `AsyncStorage` |
+
+### 2. Host Server — `server/`
+
+| | |
+|---|---|
+| **Language** | Rust — `tokio` for async I/O, `crossbeam-channel` for lock-free queuing |
+| **Driver Integration** | Emulates a physical Xbox 360 controller at the kernel level via **ViGEmBus** |
+| **Discoverability** | Auto-detects the PC's local IPv4 address and renders a scannable QR code in the console |
+| **Pointer Handling** | Temporarily disables Windows "Enhance Pointer Precision" during mouse emulation, restores on exit |
+| **Injection Loop** | Dedicated 120Hz thread draining the input queue; neutralizes state after 100ms of silence |
 
 ---
 
 ## 📑 Custom Binary UDP Protocol
 
-To achieve minimal network overhead, the client transmits inputs using a lightweight **24-byte C-packed structure**:
+To keep overhead minimal, the client transmits a tightly packed **24-byte** structure per frame:
 
-| Byte Offset | Data Type | Field | Description |
-| :--- | :--- | :--- | :--- |
-| `0` | `u8` | `magic` | Header validation signature (`0x47`) |
-| `1` | `u8` | `version` | Protocol version (`0x01`) |
-| `2` | `u8` | `player_id` | Assigned player ID (supports local multiplayer) |
-| `3` | `u8` | `flags` | Special state flags |
-| `4 - 7` | `u32` | `sequence` | Incremental packet sequence ID (drops stale out-of-order packets) |
-| `8 - 9` | `u16` | `buttons` | Bitmask representing Xbox 360 face and utility buttons |
-| `10 - 11` | `i16` | `left_stick_x` | Left Stick X-axis alignment (`-32768` to `32767`) |
-| `12 - 13` | `i16` | `left_stick_y` | Left Stick Y-axis alignment (`-32768` to `32767`) |
-| `14 - 15` | `i16` | `right_stick_x` | Right Stick X-axis alignment (`-32768` to `32767`) |
-| `16 - 17` | `i16` | `right_stick_y` | Right Stick Y-axis alignment (`-32768` to `32767`) |
-| `18` | `u8` | `left_trigger` | Left trigger analog value (`0` to `255`) |
-| `19` | `u8` | `right_trigger` | Right trigger analog value (`0` to `255`) |
-| `20 - 23` | `u32` | `timestamp` | Client timestamp (milliseconds) |
+| Byte Offset | Type  | Field            | Description |
+| :---------- | :---- | :--------------- | :----------- |
+| `0`         | `u8`  | `magic`          | Header validation signature (`0x47`) |
+| `1`         | `u8`  | `version`        | Protocol version (`0x01`) |
+| `2`         | `u8`  | `player_id`      | Assigned player ID (local multiplayer support) |
+| `3`         | `u8`  | `flags`          | Special state flags |
+| `4–7`       | `u32` | `sequence`       | Incremental sequence ID — drops stale, out-of-order packets |
+| `8–9`       | `u16` | `buttons`        | Bitmask of Xbox 360 face / utility buttons |
+| `10–11`     | `i16` | `left_stick_x`   | Left stick X-axis (`-32768` → `32767`) |
+| `12–13`     | `i16` | `left_stick_y`   | Left stick Y-axis (`-32768` → `32767`) |
+| `14–15`     | `i16` | `right_stick_x`  | Right stick X-axis (`-32768` → `32767`) |
+| `16–17`     | `i16` | `right_stick_y`  | Right stick Y-axis (`-32768` → `32767`) |
+| `18`        | `u8`  | `left_trigger`   | Left trigger analog (`0` → `255`) |
+| `19`        | `u8`  | `right_trigger`  | Right trigger analog (`0` → `255`) |
+| `20–23`     | `u32` | `timestamp`      | Client timestamp (ms) |
 
-### Button Bitmasks
+<details>
+<summary><strong>Button Bitmasks</strong> (click to expand)</summary>
+
 ```rust
-D_UP         = 0x0001
-D_DOWN       = 0x0002
-D_LEFT       = 0x0004
-D_RIGHT      = 0x0008
-START        = 0x0010
-BACK         = 0x0020
-L_THUMB      = 0x0040
-R_THUMB      = 0x0080
-L_SHOULDER   = 0x0100
-R_SHOULDER   = 0x0200
-GUIDE        = 0x0400
-A            = 0x1000
-B            = 0x2000
-X            = 0x4000
-Y            = 0x8000
+// TODO: fill in bitmask constants, e.g.
+// const BTN_A: u16      = 1 << 0;
+// const BTN_B: u16      = 1 << 1;
+// const BTN_X: u16      = 1 << 2;
+// const BTN_Y: u16      = 1 << 3;
+// const BTN_LB: u16     = 1 << 4;
+// const BTN_RB: u16     = 1 << 5;
+// const BTN_BACK: u16   = 1 << 6;
+// const BTN_START: u16  = 1 << 7;
+// const BTN_DPAD_UP: u16    = 1 << 8;
+// const BTN_DPAD_DOWN: u16  = 1 << 9;
+// const BTN_DPAD_LEFT: u16  = 1 << 10;
+// const BTN_DPAD_RIGHT: u16 = 1 << 11;
 ```
 
----
-
-## 🛠️ Requirements & Dependencies
-
-### Windows PC (Server Host)
-1. **ViGEmBus Driver**: You must have the [ViGEmBus driver](https://github.com/ViGEm/ViGEmBus/releases) installed on your PC.
-2. **Firewall**: Windows Firewall must allow incoming UDP packets on port `8888`.
-3. **C++ Build Tools**: Required by Rust crates interfacing with Windows APIs.
-
-### Mobile Client Build Tools
-- **Node.js**: `24.x` (LTS) or newer.
-- **JDK**: `17` (strictly required for local Android/Gradle builds).
-- **Android Studio**: Installed with Android SDK Platform-Tools (`adb` path added to env variables).
+</details>
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Getting Started
 
-### 1. Launching the Windows Server
+### Prerequisites
+
+- Windows PC with [ViGEmBus driver](https://github.com/ViGEm/ViGEmBus) installed
+- Rust toolchain (to build the server)
+- Node.js + Expo CLI (to run the client)
+- Android device and PC on the **same local network**
+
+### 1. Run the server
+
 ```bash
 cd server
 cargo run --release
 ```
-The server will boot, display your local IP, show a QR code for quick connections, and start listening on UDP port `8888`.
 
-### 2. Launching the Client Dev Server
+A QR code will render directly in your console — scan it from the app to connect instantly.
+
+### 2. Run the client
+
 ```bash
 cd client
 npm install
 npx expo start
 ```
-Run `npx expo run:android` to deploy a development build to your USB-connected Android device.
+
+Scan the QR code shown in the server console, and you're in.
 
 ---
 
-## 📦 Distribution Packages (`release/`)
-Staged artifacts are grouped as follows:
-- **`release/PadX-Android/`**: Contains `app-release.apk` for direct sideloading on your device.
-- **`release/PadX-Windows/`**: Contains compiled `server.exe` and a quick-launch `start_server.bat` script.
+## 🛠️ Tech Stack
+
+| Layer                 | Technology |
+| :--------------------- | :--------- |
+| Mobile UI              | React Native, Expo |
+| Mobile Networking       | Raw UDP sockets |
+| Server Runtime          | Rust, Tokio |
+| Input Queuing           | crossbeam-channel |
+| Controller Emulation    | ViGEmBus |
+
+---
+
+## 🗺️ Roadmap
+
+- [ ] Finalize and document full button bitmask table
+- [ ] Multi-controller / local co-op support polish
+- [ ] Customizable button layouts
+- [ ] Latency/ping indicator in-app
+- [ ] iOS client support
+
+---
+
+## 📄 License
+
+Personal project — license TBD.
